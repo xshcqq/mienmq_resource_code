@@ -1,0 +1,2 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration = com.mienmq.client.config.MienMqAutoConfiguration
+org.springframework.context.ApplicationListener = com.mienmq.client.client.consumer.MessagePullListener

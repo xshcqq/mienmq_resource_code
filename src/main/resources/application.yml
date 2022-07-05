@@ -1,0 +1,28 @@
+server:
+  port: 11990
+
+spring:
+  application:
+    name: mienmq_client
+
+## mienMq配置
+mienmq:
+  producer:
+#    host: 47.101.67.21
+    host: 127.0.0.1
+    port: 9000
+#    retry-times: 4
+    whether-reconnect: true
+
+#eureka:
+#  client:
+#    serviceUrl:
+#      #defaultZone: http://eureka.dev.fbu.swiftpass.xyz/eureka
+#      defaultZone: http://localhost:8761/eureka/
+
+#logging:
+#  pattern:
+#    console: "%d{yyyy-MM-dd} %yellow(%d{HH:mm:ss.SSS})|%X{tid}|%green(%thread)|%highlight(%-5level)|%cyan(%logger:%-3L)|%highlight(%msg) %n"
+#  level:
+#    root: ERROR
+#    cn.swiftpass: trace
