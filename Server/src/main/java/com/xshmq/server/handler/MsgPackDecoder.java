@@ -1,6 +1,5 @@
 package com.xshmq.server.handler;
 
-import com.xshmq.NettyServer;
 import com.xshmq.server.entity.Message;
 import com.xshmq.util.ProtostuffUtil;
 import io.netty.buffer.ByteBuf;
@@ -16,23 +15,29 @@ import java.util.List;
  */
 public class MsgPackDecoder extends ByteToMessageDecoder {
 
-    private final static Logger logger = LoggerFactory.getLogger(NettyServer.class);
+    private final static Logger logger = LoggerFactory.getLogger(MsgPackDecoder.class);
 
     @Override
     protected void decode(ChannelHandlerContext channelHandlerContext, ByteBuf byteBuf, List<Object> list) throws Exception {
-        // 消息的长度
-        if (byteBuf.readableBytes() < 4) {
-            logger.error("需要解码的消息长度异常！");
+        try {
+            // 消息的长度
+            if (byteBuf.readableBytes() < 4) {
+                logger.error("需要解码的消息长度异常！");
+            }
+            int length = byteBuf.readInt();
+
+            //读取content
+            byte[] data = new byte[length];
+            byteBuf.readBytes(data);
+
+            Message message = ProtostuffUtil.deserializer(data, Message.class);
+            list.add( message );
+        } catch (Exception e) {
+//            logger.error("服务端读取数据发生异常", e);
+            // 跳过此次异常的数据包
+            byteBuf.skipBytes(byteBuf.readableBytes());
+        } finally {
+            byteBuf.discardReadBytes();//回收已读字节
         }
-        int length = byteBuf.readInt();
-
-        //读取content
-        byte[] data = new byte[length];
-        byteBuf.readBytes(data);
-
-        Message message = ProtostuffUtil.deserializer(data, Message.class);
-        list.add( message );
-        byteBuf.discardReadBytes();//回收已读字节
-
     }
 }

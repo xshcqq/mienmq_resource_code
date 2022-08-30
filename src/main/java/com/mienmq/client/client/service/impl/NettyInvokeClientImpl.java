@@ -180,7 +180,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
                                 future.isSuccess());
                     }
                 });
-                channelCache.remove(constants.getPort() + ":" + constants.getHost());
+                channelCache.remove(constants.getHost() + ":" + constants.getPort());
             }
         } catch (TimeoutException | InterruptedException se) {
             result.setNetState(false);
@@ -198,8 +198,10 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
         // 缓存中没有的话重新建立连接
         if (null == channel || !channel.isActive()) {
             InetSocketAddress isa = new InetSocketAddress(host, Integer.parseInt(port));
-            channel = this.bootstrap.connect(isa).sync().channel();
-            channelCache.put(host + ":" + port, channel);
+            channel = this.bootstrap.connect(isa).channel();
+            if (channel.isActive()) {
+                channelCache.put(host + ":" + port, channel);
+            }
         }
         return channel;
     }
