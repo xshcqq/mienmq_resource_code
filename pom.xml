@@ -9,9 +9,9 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.xshMq</groupId>
-    <artifactId>client1.0</artifactId>
+    <artifactId>springboot-starter-mienmq</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>mienmq_client1.0</name>
+    <name>springboot-starter-mienmq</name>
     <description>abstract mq demo</description>
     <properties>
         <java.version>1.8</java.version>

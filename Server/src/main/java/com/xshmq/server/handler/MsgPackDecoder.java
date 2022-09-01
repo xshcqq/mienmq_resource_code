@@ -33,7 +33,7 @@ public class MsgPackDecoder extends ByteToMessageDecoder {
             Message message = ProtostuffUtil.deserializer(data, Message.class);
             list.add( message );
         } catch (Exception e) {
-//            logger.error("服务端读取数据发生异常", e);
+            logger.error("<<<<<<<<<<<  服务端读取数据发生异常  >>>>>>>>>>>>>>>");
             // 跳过此次异常的数据包
             byteBuf.skipBytes(byteBuf.readableBytes());
         } finally {
