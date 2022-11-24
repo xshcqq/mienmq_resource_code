@@ -6,6 +6,8 @@ import com.xshmq.server.entity.Message;
 import com.xshmq.server.entity.PullMessage;
 import com.xshmq.server.entity.PushMessage;
 import com.xshmq.server.enums.RequestType;
+import com.xshmq.server.enums.ServerBizErrorInfo;
+import com.xshmq.server.exception.ServerException;
 import com.xshmq.util.ProtostuffUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -81,11 +83,9 @@ public class LifeCycleInBoundHandler extends ChannelInboundHandlerAdapter {
         switch (type) {
                 // 发送消息
             case SEND_MESSAGE:
-//                String pushMessageStr = ProtostuffUtil.deserializer(message.getContent(), String.class);
-//                PushMessage pushMessage = JSON.parseObject(pushMessageStr, PushMessage.class);
                 String queueName = message.getQueueName();
                 if (StringUtil.isNullOrEmpty(queueName)) {
-                    throw new Exception(); // todo 后期加业务异常
+                    throw new ServerException(ServerBizErrorInfo.PULL_MESSAGE_ERROR, "拉取服务端消息异常，消息队列为空！");
                 }
                 if (messageQueues.containsKey(queueName)){
                     messageQueues.get(queueName).put(message.getContent());
