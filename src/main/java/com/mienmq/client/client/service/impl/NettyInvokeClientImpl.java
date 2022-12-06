@@ -2,14 +2,18 @@ package com.mienmq.client.client.service.impl;
 
 import com.alibaba.fastjson.JSON;
 import com.mienmq.client.client.NettyClient;
+import com.mienmq.client.client.constants.ConnectionInitConfiguration;
 import com.mienmq.client.client.consumer.MessagePullEvent;
 import com.mienmq.client.client.exception.BusinessException;
-import com.mienmq.client.client.handler.*;
+import com.mienmq.client.client.handler.LifeCycleInBoundHandler;
+import com.mienmq.client.client.handler.MsgPackDecoder;
+import com.mienmq.client.client.handler.MsgPackEncoder;
+import com.mienmq.client.client.handler.ProtoStuffEncodeClientHandler;
 import com.mienmq.client.client.service.NettyInvokeClient;
+import com.mienmq.client.client.service.base.Message;
 import com.mienmq.client.client.service.base.PullMessage;
 import com.mienmq.client.client.service.base.PushMessage;
 import com.mienmq.client.client.service.base.ResultWrapper;
-import com.mienmq.client.client.constants.ConnectionInitConfiguration;
 import com.mienmq.client.enums.ClientBizErrorInfo;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
@@ -19,9 +23,11 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.handler.timeout.TimeoutException;
 import io.netty.util.internal.StringUtil;
+import org.apache.logging.log4j.util.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
+
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.List;
@@ -30,24 +36,37 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 /**
  * netty连接；发送消息接口{@link NettyInvokeClient}实现类
  */
 public class NettyInvokeClientImpl implements NettyInvokeClient {
     private final static Logger logger = LoggerFactory.getLogger(NettyClient.class);
-
-    private final Bootstrap bootstrap = new Bootstrap();
-    private final EventLoopGroup eventLoopGroupWorker;
     private static final Lock queueNameMapLock = new ReentrantLock();
     private final static Map<String, Channel> channelCache = new ConcurrentHashMap<>();
-    private final CyclicBarrier queueFullLock = new CyclicBarrier(3);
-    private ApplicationContext context;
     //客户端启动状态 0初始化中 1初始化完成 2停止中
     public static AtomicInteger initState = new AtomicInteger(0);
     // 客户端断开是否重连
     private static volatile boolean whetherReconnect;
+    private final Bootstrap bootstrap = new Bootstrap();
+    private final EventLoopGroup eventLoopGroupWorker;
+    private final CyclicBarrier queueFullLock = new CyclicBarrier(3);
+    /**
+     * 发送同步消息时阻塞当前线程计数器
+     */
+    private final ThreadLocal<CountDownLatch> syncMessageControl = ThreadLocal.withInitial(new Supplier<CountDownLatch>() {
+        @Override
+        public CountDownLatch get() {
+            return new CountDownLatch(1);
+        }
+    });
+    private Map<String, Thread> syncThreadMap = new ConcurrentHashMap<>();
+    // 同步消息缓存
+    private Map<String, Message> syncMessageMap = new ConcurrentHashMap<>();
+    private ApplicationContext context;
     private ConnectionInitConfiguration constants;
     /*****  消费者相关属性  ****/
     private Map<String, LinkedBlockingQueue<PushMessage>> messageToQueueMap = new ConcurrentHashMap();
@@ -57,6 +76,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
                                  ApplicationContext context) {
         this.eventLoopGroupWorker = new NioEventLoopGroup(1, new ThreadFactory() {
             private final AtomicInteger threadIndex = new AtomicInteger(0);
+
             @Override
             public Thread newThread(Runnable r) {
                 return new Thread(r, String.format("NettyClientSelector_%d", this.threadIndex.incrementAndGet()));
@@ -83,7 +103,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
                     protected void initChannel(SocketChannel ch) throws Exception {
                         //加入处理器
                         ch.pipeline()
-                                .addLast(new IdleStateHandler(0, 0, 60L, TimeUnit.SECONDS ))
+                                .addLast(new IdleStateHandler(0, 0, 60L, TimeUnit.SECONDS))
                                 .addLast(new MsgPackEncoder())
                                 .addLast(new MsgPackDecoder())
                                 .addLast(new LifeCycleInBoundHandler(NettyInvokeClientImpl.this));
@@ -112,6 +132,8 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
     @Override
     public ResultWrapper sendSync(Object requestMsg) {
         ResultWrapper result = new ResultWrapper();
+        String threadId = Thread.currentThread().getName();
+        Message syncMessage = null;
         try {
             if (this.initState.get() != 1) {
                 throw new BusinessException(ClientBizErrorInfo.INVALID_PARAM, "Netty客户端状态错误！");
@@ -120,7 +142,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
             Channel channel = getChannel(constants.getHost(), constants.getPort());
             if (channel != null && channel.isActive()) {
                 SocketAddress address = channel.remoteAddress();
-                if (channel.writeAndFlush(requestMsg).sync().isSuccess()){
+                if (channel.writeAndFlush(requestMsg).sync().isSuccess()) {
                     result.setNetState(Boolean.TRUE);
                     result.setBusyState(Boolean.TRUE);
                     logger.info("向{}同步发送消息成功！", JSON.toJSONString(address));
@@ -129,22 +151,28 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
                 channel.close().addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {
-                        logger.info("closeChannel: close the connection to remote address[{}:{}] result: {}", constants.getHost() ,constants.getPort(),
+                        logger.info("closeChannel: close the connection to remote address[{}:{}] result: {}", constants.getHost(), constants.getPort(),
                                 future.isSuccess());
                     }
                 });
                 channelCache.remove(constants.getPort() + ":" + constants.getHost());
             }
+            // 同步阻塞等待消息返回, 最长阻塞5秒钟
+            syncThreadMap.put(threadId, Thread.currentThread());
+            LockSupport.parkNanos(1000 * 1000 * 5L);
+            syncMessage = syncMessageMap.get(threadId);
         } catch (TimeoutException | InterruptedException se) {
             result.setNetState(false);
             logger.error("发送消息发生网络异常！", se);
+        } finally {
+            result.setResult(syncMessage);
             return result;
         }
-        return result;
     }
 
     /**
      * 异步通讯
+     *
      * @param requestMsg
      * @return
      */
@@ -176,7 +204,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
                 channel.close().addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {
-                        logger.info("closeChannel: close the connection to remote address[{}:{}] result: {}", constants.getHost() ,constants.getPort(),
+                        logger.info("closeChannel: close the connection to remote address[{}:{}] result: {}", constants.getHost(), constants.getPort(),
                                 future.isSuccess());
                     }
                 });
@@ -191,6 +219,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
 
     /**
      * 获取和服务端绑定的channel
+     *
      * @return
      */
     private Channel getChannel(String host, String port) throws InterruptedException {
@@ -208,6 +237,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
 
     /**
      * netty启动完毕后缓存channel；否则第一次连接一个服务端会耗时一定时间
+     *
      * @return
      */
     private void cacheChannel(String host, String port, Channel channel) throws InterruptedException {
@@ -225,6 +255,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
 
     /**
      * 客户端重连
+     *
      * @return
      */
     public void connectAsync() {
@@ -256,6 +287,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
 
     /**
      * 将拉取的消息存到本地队列中
+     *
      * @param list
      */
     public void insertMessagesToBlockQueue(List<PushMessage> list, String queueName) {
@@ -282,6 +314,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
 
     /**
      * 获取消费线程池对应的阻塞队列
+     *
      * @param queueName
      * @return {@link PullMessage}
      */
@@ -295,6 +328,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
 
     /**
      * 获取消费者对应队列名
+     *
      * @param beanName
      * @return {@link PullMessage}
      */
@@ -308,6 +342,7 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
 
     /**
      * 根据队列名获取单条消息
+     *
      * @param queueName
      * @return
      */
@@ -315,5 +350,24 @@ public class NettyInvokeClientImpl implements NettyInvokeClient {
     public Object getSingleMessage(String queueName) {
         Object message = getQueueByQueueName(queueName).poll();
         return message;
+    }
+
+    /**
+     * 传递netty收到的同步信息到同步信息Map中并唤醒同步等待的线程
+     *
+     * @param message
+     * @param threadId
+     * @return
+     */
+    public void passSyncMessage(String threadId, Message message) {
+        if (Strings.isNotBlank(threadId)) {
+            syncMessageMap.put(threadId, message);
+        }
+        // 唤醒同步线程, 并删除等待线程map中的thread数据
+        Thread lockThread = syncThreadMap.get(threadId);
+        if (lockThread != null && lockThread.isAlive()) {
+            LockSupport.unpark(syncThreadMap.get(threadId));
+            syncThreadMap.remove(threadId);
+        }
     }
 }

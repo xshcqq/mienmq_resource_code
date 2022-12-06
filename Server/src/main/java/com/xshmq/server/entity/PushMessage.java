@@ -3,7 +3,7 @@ package com.xshmq.server.entity;
 /**
  * 拉取消息时给服务端的拉取信息
  */
-public class PushMessage {
+public class PushMessage extends BaseEntity {
 
     // 所要拉取的队列名称
     private String queueName;

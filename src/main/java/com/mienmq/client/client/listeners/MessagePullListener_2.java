@@ -3,11 +3,10 @@ package com.mienmq.client.client.listeners;
 import com.alibaba.fastjson.JSON;
 import com.mienmq.client.annotation.MienMqListener;
 import com.mienmq.client.client.consumer.DefaultConsumer;
-import com.mienmq.client.client.service.NettyInvokeClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@MienMqListener(queueName = "DEFAULT_QUEUE_2")
+@MienMqListener(queueName = "NOTICE_TEST")
 public class MessagePullListener_2 extends DefaultConsumer {
     private final static Logger logger = LoggerFactory.getLogger(MessagePullListener_2.class);
 

@@ -4,6 +4,7 @@ public enum RequestType {
     SEND_MESSAGE(0),
     PULL_MESSAGE(1),
     HEART_BEAT(2),
+    COUNT_MESSAGE_DETAILS(3),
 
     ERROR_TYPE(-1);
 
@@ -13,12 +14,9 @@ public enum RequestType {
         this.requestType = requestType;
     }
 
-    public int getRequestType() {
-        return this.requestType;
-    }
-
     /**
      * 通过枚举名称获取对应枚举
+     *
      * @param enumName
      * @return
      */
@@ -29,5 +27,9 @@ public enum RequestType {
             }
         }
         return ERROR_TYPE;
+    }
+
+    public int getRequestType() {
+        return this.requestType;
     }
 }

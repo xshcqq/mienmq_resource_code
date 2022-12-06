@@ -1,9 +1,9 @@
 package com.mienmq.client.client.handler;
 
 import com.alibaba.fastjson.JSON;
+import com.mienmq.client.client.service.base.CountSyncMessage;
 import com.mienmq.client.client.service.base.ListSchema;
 import com.mienmq.client.client.service.base.Message;
-import com.mienmq.client.client.service.base.PullMessage;
 import com.mienmq.client.client.service.base.PushMessage;
 import com.mienmq.client.client.service.impl.NettyInvokeClientImpl;
 import com.mienmq.client.enums.RequestType;
@@ -14,16 +14,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 
 /**
- *  handler的生命周期回调接口调用顺序:
- *  handlerAdded -> channelRegistered -> channelActive -> channelRead -> channelReadComplete
- *  -> channelInactive -> channelUnRegistered -> handlerRemoved
- *
+ * handler的生命周期回调接口调用顺序:
+ * handlerAdded -> channelRegistered -> channelActive -> channelRead -> channelReadComplete
+ * -> channelInactive -> channelUnRegistered -> handlerRemoved
+ * <p>
  * handlerAdded: 新建立的连接会按照初始化策略，把handler添加到该channel的pipeline里面，也就是channel.pipeline.addLast(new LifeCycleInBoundHandler)执行完成后的回调；
  * channelRegistered: 当该连接分配到具体的worker线程后，该回调会被调用。
  * channelActive：channel的准备工作已经完成，所有的pipeline添加完成，并分配到具体的线上上，说明该channel准备就绪，可以使用了。
@@ -34,7 +33,7 @@ import java.util.concurrent.TimeUnit;
  * handlerRemoved： 对应handlerAdded，将handler从该channel的pipeline移除后的回调方法。
  */
 public class LifeCycleInBoundHandler extends ChannelInboundHandlerAdapter {
-    
+
     private final static Logger logger = LoggerFactory.getLogger(LifeCycleInBoundHandler.class);
 
     private NettyInvokeClientImpl invokeClient;
@@ -42,6 +41,7 @@ public class LifeCycleInBoundHandler extends ChannelInboundHandlerAdapter {
     public LifeCycleInBoundHandler(NettyInvokeClientImpl invokeClient) {
         this.invokeClient = invokeClient;
     }
+
     @Override
     public void channelRegistered(ChannelHandlerContext ctx)
             throws Exception {
@@ -50,30 +50,30 @@ public class LifeCycleInBoundHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
-    public void channelUnregistered(ChannelHandlerContext ctx) 
+    public void channelUnregistered(ChannelHandlerContext ctx)
             throws Exception {
         logger.info("channelUnregistered: channel取消和NioEventLoop的绑定");
         super.channelUnregistered(ctx);
     }
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) 
+    public void channelActive(ChannelHandlerContext ctx)
             throws Exception {
         logger.info("channelActive: channel准备就绪");
         super.channelActive(ctx);
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) 
+    public void channelRead(ChannelHandlerContext ctx, Object msg)
             throws Exception {
-        Message message = (Message)msg;
+        Message message = (Message) msg;
 
         RequestType type = RequestType.getTypeByEnumName(message.getRequestType());
         switch (type) {
-                // 发送消息
+            // 发送消息
             case SEND_MESSAGE:
                 break;
-                // 拉取消息
+            // 拉取消息
             case PULL_MESSAGE:
                 // 获取队列中消息的条数
                 ListSchema pullMessageStr = ProtostuffUtil.deserializer(message.getContent(), ListSchema.class);
@@ -83,28 +83,35 @@ public class LifeCycleInBoundHandler extends ChannelInboundHandlerAdapter {
                 // 将拉取的消息放到本地队列
                 invokeClient.insertMessagesToBlockQueue(pullMessages, pullQueueName);
                 break;
+            case COUNT_MESSAGE_DETAILS:
+                // 发送消息时上送的客户端线程id
+                CountSyncMessage requestSyncMessage = ProtostuffUtil.deserializer(message.getContent(), CountSyncMessage.class);
+                String threadId = requestSyncMessage.getThreadId();
+                // 将同步信息传递到netty客户端
+                invokeClient.passSyncMessage(threadId, message);
 
+                break;
         }
         logger.info("channelRead: channel中有可读的数据:{}", JSON.toJSONString(message));
         super.channelRead(ctx, msg);
     }
 
     @Override
-    public void channelReadComplete(ChannelHandlerContext ctx) 
+    public void channelReadComplete(ChannelHandlerContext ctx)
             throws Exception {
         logger.info("channelReadComplete: channel读数据完成");
         super.channelReadComplete(ctx);
     }
 
     @Override
-    public void handlerAdded(ChannelHandlerContext ctx) 
+    public void handlerAdded(ChannelHandlerContext ctx)
             throws Exception {
         logger.info("handlerAdded: handler被添加到channel的pipeline");
         super.handlerAdded(ctx);
     }
 
     @Override
-    public void handlerRemoved(ChannelHandlerContext ctx) 
+    public void handlerRemoved(ChannelHandlerContext ctx)
             throws Exception {
         logger.info("handlerRemoved: handler从channel的pipeline中移除");
         super.handlerRemoved(ctx);

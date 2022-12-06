@@ -8,12 +8,12 @@ import com.mienmq.client.client.service.base.*;
 import com.mienmq.client.enums.ClientBizErrorInfo;
 import com.mienmq.client.enums.RequestType;
 import com.mienmq.client.util.ProtostuffUtil;
+import org.apache.logging.log4j.util.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @Service
@@ -28,12 +28,13 @@ public class SendMessageServiceImpl implements SendMessageService {
 
     /**
      * mq发送消息
+     *
      * @param request
      * @return
      */
     @Override
     public ResultWrapper send(PushMessage request) {
-        if (request == null){
+        if (request == null) {
             throw new BusinessException(ClientBizErrorInfo.INVALID_PARAM, "发送消息体类型不正确，必须集成BaseEntity!");
         }
         Message message = new Message();
@@ -52,19 +53,25 @@ public class SendMessageServiceImpl implements SendMessageService {
 
     /**
      * mq发送异步消息
+     *
      * @param request
      * @return
      */
     @Override
     public ResultWrapper sendOneWay(PushMessage request) {
-        if (request == null){
+        if (request == null) {
             throw new BusinessException(ClientBizErrorInfo.INVALID_PARAM, "发送消息体类型不正确，必须集成BaseEntity!");
         }
         Message message = new Message();
         message.setMessageId("" + System.currentTimeMillis() + UUID.randomUUID());
         message.setRequestType(RequestType.SEND_MESSAGE.name());
-        message.setQueueName("DEFAULT_QUEUE");
-        request.setQueueName("DEFAULT_QUEUE");
+        // 消息里面有队列名就用传进来的
+        if (Strings.isBlank(request.getQueueName())) {
+            message.setQueueName("DEFAULT_QUEUE");
+            request.setQueueName("DEFAULT_QUEUE");
+        } else {
+            message.setQueueName(request.getQueueName());
+        }
         message.setContent(ProtostuffUtil.serializer(request));
 
         logger.info("开始发送异步消息：{}", JSON.toJSONString(request));
@@ -74,15 +81,15 @@ public class SendMessageServiceImpl implements SendMessageService {
     }
 
 
-
     /**
      * mq发送拉取消息请求
+     *
      * @param request
      * @return
      */
     @Override
     public ResultWrapper send(PullMessage request) {
-        if (request == null){
+        if (request == null) {
             throw new BusinessException(ClientBizErrorInfo.INVALID_PARAM, "发送消息体类型不正确，必须集成BaseEntity!");
         }
         Message message = new Message();
@@ -101,12 +108,13 @@ public class SendMessageServiceImpl implements SendMessageService {
 
     /**
      * mq发送消息
+     *
      * @param request
      * @return
      */
     @Override
     public ResultWrapper sendListener_2(PushMessage request) {
-        if (request == null){
+        if (request == null) {
             throw new BusinessException(ClientBizErrorInfo.INVALID_PARAM, "发送消息体类型不正确，必须集成BaseEntity!");
         }
         Message message = new Message();
@@ -118,6 +126,29 @@ public class SendMessageServiceImpl implements SendMessageService {
 
         logger.info("开始发送同步消息：{}", JSON.toJSONString(request));
         ResultWrapper wrapper = producer.sendSync(message);
+        logger.info("结束发送同步消息，返回结果为：{}", JSON.toJSONString(wrapper));
+        return wrapper;
+    }
+
+
+    /**
+     * 拉取消息服务器对应消息详情
+     *
+     * @param request
+     * @return
+     */
+    @Override
+    public ResultWrapper getMessagesCount(CountSyncReqMessage request) {
+        if (request == null) {
+            throw new BusinessException(ClientBizErrorInfo.INVALID_PARAM, "发送消息体类型不正确，必须集成BaseEntity!");
+        }
+        Message message = new Message();
+        message.setMessageId("" + System.currentTimeMillis() + UUID.randomUUID());
+        message.setRequestType(RequestType.COUNT_MESSAGE_DETAILS.name());
+        message.setContent(ProtostuffUtil.serializer(request));
+
+        logger.info("开始发送同步消息：{}", JSON.toJSONString(request));
+        ResultWrapper wrapper = client.sendSync(message);
         logger.info("结束发送同步消息，返回结果为：{}", JSON.toJSONString(wrapper));
         return wrapper;
     }

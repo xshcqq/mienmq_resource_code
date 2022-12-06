@@ -1,10 +1,6 @@
 package com.xshmq.server.handler;
 
-import com.alibaba.fastjson.JSON;
-import com.xshmq.server.entity.ListSchema;
-import com.xshmq.server.entity.Message;
-import com.xshmq.server.entity.PullMessage;
-import com.xshmq.server.entity.PushMessage;
+import com.xshmq.server.entity.*;
 import com.xshmq.server.enums.RequestType;
 import com.xshmq.server.enums.ServerBizErrorInfo;
 import com.xshmq.server.exception.ServerException;
@@ -15,7 +11,6 @@ import io.netty.util.internal.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -26,10 +21,10 @@ import java.util.concurrent.LinkedBlockingQueue;
 import static com.xshmq.server.enums.RequestType.*;
 
 /**
- *  handler的生命周期回调接口调用顺序:
- *  handlerAdded -> channelRegistered -> channelActive -> channelRead -> channelReadComplete
- *  -> channelInactive -> channelUnRegistered -> handlerRemoved
- *
+ * handler的生命周期回调接口调用顺序:
+ * handlerAdded -> channelRegistered -> channelActive -> channelRead -> channelReadComplete
+ * -> channelInactive -> channelUnRegistered -> handlerRemoved
+ * <p>
  * handlerAdded: 新建立的连接会按照初始化策略，把handler添加到该channel的pipeline里面，也就是channel.pipeline.addLast(new LifeCycleInBoundHandler)执行完成后的回调；
  * channelRegistered: 当该连接分配到具体的worker线程后，该回调会被调用。
  * channelActive：channel的准备工作已经完成，所有的pipeline添加完成，并分配到具体的线上上，说明该channel准备就绪，可以使用了。
@@ -81,6 +76,28 @@ public class LifeCycleInBoundHandler extends ChannelInboundHandlerAdapter {
         // 根据不同的请求类型执行不同的业务逻辑
         RequestType type = getTypeByEnumName(message.getRequestType());
         switch (type) {
+                // 统计服务端消息详情
+            case COUNT_MESSAGE_DETAILS:
+                // 获取同步消息的客户端线程id
+                AbstractSyncMessage requestSyncMessage = ProtostuffUtil.deserializer(message.getContent(), AbstractSyncMessage.class);
+                String threadId = requestSyncMessage.getThreadId();
+
+                // 将每个队列中消息数量等信息构建好返回
+                List messageDetailsList  = new LinkedList<CountMessage>();
+                messageQueues.keySet().forEach((queueName) -> {
+                    CountMessage countMessage = new CountMessage(queueName, messageQueues.get(queueName).size());
+                    messageDetailsList.add(countMessage);
+                });
+                // 将详情放入 标准message 中，并发往客户端
+                Message countRespMessage = new Message();
+                countRespMessage.setMessageId(UUID.randomUUID().toString());
+                countRespMessage.setRequestType(COUNT_MESSAGE_DETAILS.name());
+                countRespMessage.setQueueName(message.getQueueName());
+                CountSyncMessage syncMessage = new CountSyncMessage(messageDetailsList);
+                syncMessage.setThreadId(threadId);
+                countRespMessage.setContent(ProtostuffUtil.serializer(syncMessage));
+                ctx.writeAndFlush(countRespMessage);
+                break;
                 // 发送消息
             case SEND_MESSAGE:
                 String queueName = message.getQueueName();

@@ -4,7 +4,9 @@ import com.dyuproject.protostuff.LinkedBuffer;
 import com.dyuproject.protostuff.ProtostuffIOUtil;
 import com.dyuproject.protostuff.Schema;
 import com.dyuproject.protostuff.runtime.RuntimeSchema;
+import com.xshmq.server.entity.CountSyncMessage;
 import com.xshmq.server.entity.ListSchema;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -14,8 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ProtostuffUtil {
 
     private static Map<Class<?>, Schema<?>> cachedSchema = new ConcurrentHashMap<Class<?>, Schema<?>>();
+
     static {
         cachedSchema.put(ListSchema.class, RuntimeSchema.createFrom(ListSchema.class));
+        cachedSchema.put(CountSyncMessage.class, RuntimeSchema.createFrom(CountSyncMessage.class));
     }
 
     private static <T> Schema<T> getSchema(Class<T> clazz) {
